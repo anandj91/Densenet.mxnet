@@ -10,6 +10,9 @@ Coded by Lin Xiong Mar-2, 2017
 import argparse,logging,os
 import mxnet as mx
 from symbol_densenet import DenseNet
+from mxnet import profiler
+from os.path import expanduser
+import socket
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -145,6 +148,21 @@ def main():
 	
     # import pdb
     # pdb.set_trace()
+    logfile = expanduser("~")+"/profiler-"+str(socket.gethostname())+"-"+str(kv.rank)+".json"
+    mx.profiler.profiler_set_config(mode='all', filename=logfile)
+    def callback():
+        def switch_profiler(param):
+            if param.epoch == 0 and param.nbatch == 100:
+                profiler.profiler_set_state('run')
+            if param.epoch == 0 and param.nbatch == 110:
+                profiler.profiler_set_state('stop')
+                profiler.dump_profile()
+
+        return switch_profiler;
+
+    # callbacks that run after each batch
+    batch_end_callbacks = [mx.callback.Speedometer(args.batch_size, args.frequent),
+            callback()]
 
     model.fit(
         X                  = train,
@@ -152,7 +170,7 @@ def main():
         eval_metric        = ['acc'] if args.data_type=='cifar10' else
                              ['acc', mx.metric.create('top_k_accuracy', top_k = 5)],
         kvstore            = kv,
-        batch_end_callback = mx.callback.Speedometer(args.batch_size, args.frequent),
+        batch_end_callback = batch_end_callbacks,
         epoch_end_callback = checkpoint)
     #logging.info("top-1 and top-5 acc is {}".format(model.score(X = val,
     #               eval_metric = ['acc', mx.metric.create('top_k_accuracy', top_k = 5)])))
